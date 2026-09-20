@@ -49,6 +49,14 @@ async function startServer() {
     });
   });
 
+  app.get('/', (req, res) => {
+    res.json({
+      service: 'Negadras Dispatch API',
+      status: 'ok',
+      health: '/api/health'
+    });
+  });
+
   // Serve static assets or mount Vite dev server
   if (process.env.NODE_ENV !== 'production') {
     console.log('Starting development server with Vite middleware...');
