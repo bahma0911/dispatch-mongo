@@ -132,7 +132,47 @@ SMS_GATEWAY_PASSWORD="gateway-password"
 SMS_GATEWAY_DEVICE_ID="android-device-identifier-1"
 ```
 
-On Render, use `npm install` as the build command and `npm run build` as the build step if dependencies are not installed automatically. Use `npm start` as the start command. Add `nega.bahma.com.et` as a custom domain and point its DNS record to the hostname Render provides.
+## ☁️ Cloudflare + MongoDB Atlas Deployment
+
+The application uses the supported split deployment model:
+
+- **Cloudflare Pages** serves the Vite frontend and proxies `/api/*` through `functions/api/[[path]].ts`.
+- **A Node.js host** (Render, Railway, Fly.io, or a VPS) runs the Express API and native MongoDB driver. Cloudflare Workers cannot run the native `mongodb` driver because Workers do not provide Node's TCP networking APIs.
+- **MongoDB Atlas** stores all production data. Do not use the JSON fallback in production.
+
+### 1. Deploy the API
+
+Create a Node web service from this repository with:
+
+- Build command: `npm ci && npm run build:server`
+- Start command: `npm start`
+- Health check: `/api/health`
+
+Set these API environment variables:
+
+```env
+NODE_ENV=production
+MONGODB_URI=mongodb+srv://<db_username>:<db_password>@<cluster>/<database>?retryWrites=true&w=majority
+MONGODB_DB_NAME=nega
+JWT_SECRET=<long-random-secret>
+```
+
+Also set the optional `SMS_GATEWAY_*` variables when live SMS is required. Restrict the Atlas network access list to the API host's outbound IP when your host provides a stable address; otherwise use Atlas's documented deployment-provider access configuration.
+
+### 2. Deploy the frontend to Cloudflare Pages
+
+In Cloudflare Pages, connect this repository and use:
+
+- Build command: `npm ci && npm run build:client`
+- Build output directory: `dist`
+
+Add the Pages environment variable `API_ORIGIN` containing the deployed API origin, for example `https://dispatch-api.example.com` (no trailing slash). The Pages Function forwards browser requests to that origin and preserves the request method, body, and authorization headers.
+
+Alternatively, deploy from the CLI with `npm run deploy:pages` after authenticating Wrangler. Set `API_ORIGIN` in the Pages project before testing login.
+
+### 3. First production login
+
+The API seeds `admin` and `dispatch` with the temporary password `password123` on first startup. Change both passwords immediately after deployment using the application. The seed is stored in MongoDB, so it runs only when each account is absent.
 
 ### 2. Boot Up Development Servers
 Launch both Vite and Express concurrent routing inside the sandbox or your console:

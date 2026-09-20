@@ -18,6 +18,10 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
+  if (!process.env.MONGODB_URI && process.env.NODE_ENV === 'production') {
+    throw new Error('MONGODB_URI must be configured in production. The local JSON database is for development only.');
+  }
+
   if (process.env.MONGODB_URI) {
     await connectDatabase();
   } else {
