@@ -119,6 +119,7 @@ export default function App() {
   const [customerMode, setCustomerMode] = useState<'WALKIN' | 'REGISTERED'>('WALKIN');
   const [walkInName, setWalkInName] = useState('');
   const [walkInPhone, setWalkInPhone] = useState('');
+  const [showWalkInSuggestions, setShowWalkInSuggestions] = useState(false);
   const [dispCustomerId, setDispCustomerId] = useState('');
   const [dispDriverId, setDispDriverId] = useState('');
   const [dispPickup, setDispPickup] = useState('');
@@ -963,10 +964,21 @@ export default function App() {
       return data;
     };
 
-    return {
+    const datasets = {
       daily: buildDaily(),
       weekly: buildWeekly(),
       monthly: buildMonthly()
+    };
+
+    const maxValue = Math.max(
+      1,
+      ...Object.values(datasets).flatMap((items) => items.map((item) => item.value))
+    );
+
+    return {
+      daily: datasets.daily.map((item) => ({ ...item, maxValue })),
+      weekly: datasets.weekly.map((item) => ({ ...item, maxValue })),
+      monthly: datasets.monthly.map((item) => ({ ...item, maxValue }))
     };
   })();
 
@@ -1763,11 +1775,14 @@ export default function App() {
                                 type="text"
                                 required={customerMode === 'WALKIN'}
                                 value={walkInName}
-                                onChange={(e) => setWalkInName(e.target.value)}
+                                onChange={(e) => {
+                                  setWalkInName(e.target.value);
+                                  setShowWalkInSuggestions(e.target.value.trim().length > 0);
+                                }}
                                 className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium placeholder-slate-400"
                                 placeholder="e.g. John Walkin"
                               />
-                              {walkInName.trim() && walkInCustomerSuggestions.length > 0 && (
+                              {showWalkInSuggestions && walkInName.trim() && walkInCustomerSuggestions.length > 0 && (
                                 <div className="absolute z-20 mt-2 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-44 overflow-auto">
                                   {walkInCustomerSuggestions.slice(0, 6).map((customer) => (
                                     <button
@@ -1776,6 +1791,7 @@ export default function App() {
                                       onClick={() => {
                                         setWalkInName(customer.name);
                                         setWalkInPhone(customer.phone);
+                                        setShowWalkInSuggestions(false);
                                       }}
                                       className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
                                     >
@@ -2396,36 +2412,45 @@ export default function App() {
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-3">Daily Deliveries</div>
                       <div className="flex h-40 items-end gap-2">
-                        {reportChartData.daily.map((bar) => (
-                          <div key={bar.label} className="flex-1 flex flex-col items-center justify-end gap-2">
-                            <div className="w-full rounded-t-lg bg-gradient-to-t from-indigo-600 to-indigo-400" style={{ height: `${Math.max(18, bar.value * 30)}px` }} />
-                            <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
-                          </div>
-                        ))}
+                        {reportChartData.daily.map((bar) => {
+                          const height = Math.max(8, (bar.value / (bar.maxValue || 1)) * 100);
+                          return (
+                            <div key={bar.label} className="flex-1 flex flex-col items-center justify-end gap-2 h-full">
+                              <div className="w-full rounded-t-lg bg-gradient-to-t from-indigo-600 to-indigo-400" style={{ height: `${height}%` }} />
+                              <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-3">Weekly Deliveries</div>
                       <div className="flex h-40 items-end gap-2">
-                        {reportChartData.weekly.map((bar) => (
-                          <div key={`${bar.label}-${bar.value}`} className="flex-1 flex flex-col items-center justify-end gap-2">
-                            <div className="w-full rounded-t-lg bg-gradient-to-t from-emerald-600 to-emerald-400" style={{ height: `${Math.max(18, bar.value * 28)}px` }} />
-                            <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
-                          </div>
-                        ))}
+                        {reportChartData.weekly.map((bar) => {
+                          const height = Math.max(8, (bar.value / (bar.maxValue || 1)) * 100);
+                          return (
+                            <div key={`${bar.label}-${bar.value}`} className="flex-1 flex flex-col items-center justify-end gap-2 h-full">
+                              <div className="w-full rounded-t-lg bg-gradient-to-t from-emerald-600 to-emerald-400" style={{ height: `${height}%` }} />
+                              <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
                     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-3">Monthly Deliveries</div>
                       <div className="flex h-40 items-end gap-2">
-                        {reportChartData.monthly.map((bar) => (
-                          <div key={bar.label} className="flex-1 flex flex-col items-center justify-end gap-2">
-                            <div className="w-full rounded-t-lg bg-gradient-to-t from-amber-500 to-amber-300" style={{ height: `${Math.max(18, bar.value * 32)}px` }} />
-                            <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
-                          </div>
-                        ))}
+                        {reportChartData.monthly.map((bar) => {
+                          const height = Math.max(8, (bar.value / (bar.maxValue || 1)) * 100);
+                          return (
+                            <div key={bar.label} className="flex-1 flex flex-col items-center justify-end gap-2 h-full">
+                              <div className="w-full rounded-t-lg bg-gradient-to-t from-amber-500 to-amber-300" style={{ height: `${height}%` }} />
+                              <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   </div>
