@@ -1012,6 +1012,14 @@ export default function App() {
     showToast('Account statement date filter applied.', 'success');
   };
 
+  const handleClearStatementDateFilter = () => {
+    setAccountStatementStartDate('');
+    setAccountStatementEndDate('');
+    setAppliedAccountStatementStartDate('');
+    setAppliedAccountStatementEndDate('');
+    showToast('Account statement date filter cleared.', 'info');
+  };
+
   const filteredOrders = orders.filter((order) => {
     // Search query matches customer name, driver name, pickup, or delivery
     const cust = order.customer && typeof order.customer === 'object' ? order.customer : null;
@@ -2186,6 +2194,13 @@ export default function App() {
                       >
                         <Filter className="h-3.5 w-3.5" />
                         Apply
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearStatementDateFilter}
+                        className="inline-flex items-center gap-1.5 border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 font-bold px-3 py-1.5 rounded-lg text-xs transition-colors"
+                      >
+                        Clear
                       </button>
                     </div>
                   </div>
