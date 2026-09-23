@@ -100,6 +100,8 @@ export default function App() {
   const [dispatchAccountHolderSearch, setDispatchAccountHolderSearch] = useState<string>('');
   const [accountStatementStartDate, setAccountStatementStartDate] = useState<string>('');
   const [accountStatementEndDate, setAccountStatementEndDate] = useState<string>('');
+  const [appliedAccountStatementStartDate, setAppliedAccountStatementStartDate] = useState<string>('');
+  const [appliedAccountStatementEndDate, setAppliedAccountStatementEndDate] = useState<string>('');
 
   // Form States - Create Customer
   const [newCustName, setNewCustName] = useState('');
@@ -817,9 +819,15 @@ export default function App() {
 
   const downloadAccountStatementExcel = async (customerId: string, name: string, startDateOverride?: string, endDateOverride?: string) => {
     try {
+      const selectedStart = startDateOverride ?? appliedAccountStatementStartDate;
+      const selectedEnd = endDateOverride ?? appliedAccountStatementEndDate;
+
+      if (selectedStart && selectedEnd && selectedStart > selectedEnd) {
+        showToast('Statement start date cannot be after end date.', 'error');
+        return;
+      }
+
       const params = new URLSearchParams();
-      const selectedStart = startDateOverride ?? accountStatementStartDate;
-      const selectedEnd = endDateOverride ?? accountStatementEndDate;
       if (selectedStart) params.set('startDate', selectedStart);
       if (selectedEnd) params.set('endDate', selectedEnd);
 
@@ -998,6 +1006,9 @@ export default function App() {
       showToast('Statement start date cannot be after end date.', 'error');
       return;
     }
+
+    setAppliedAccountStatementStartDate(accountStatementStartDate);
+    setAppliedAccountStatementEndDate(accountStatementEndDate);
     showToast('Account statement date filter applied.', 'success');
   };
 
@@ -2245,7 +2256,7 @@ export default function App() {
                                       </button>
                                     )}
                                     <button
-                                      onClick={() => downloadAccountStatementExcel(c._id, c.name, accountStatementStartDate, accountStatementEndDate)}
+                                      onClick={() => downloadAccountStatementExcel(c._id, c.name, appliedAccountStatementStartDate, appliedAccountStatementEndDate)}
                                       className="inline-flex items-center bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold px-3 py-1.5 rounded-lg text-xs transition"
                                     >
                                       <FileSpreadsheet className="h-3.5 w-3.5 mr-1 text-indigo-600" />
@@ -2415,8 +2426,11 @@ export default function App() {
                         {reportChartData.daily.map((bar) => {
                           const height = Math.max(8, (bar.value / (bar.maxValue || 1)) * 100);
                           return (
-                            <div key={bar.label} className="flex-1 flex flex-col items-center justify-end gap-2 h-full">
-                              <div className="w-full rounded-t-lg bg-gradient-to-t from-indigo-600 to-indigo-400" style={{ height: `${height}%` }} />
+                            <div key={bar.label} className="group relative flex-1 flex flex-col items-center justify-end gap-2 h-full">
+                              <div className="absolute -top-9 left-1/2 -translate-x-1/2 hidden group-hover:flex items-center justify-center rounded-full bg-slate-900 px-2 py-1 text-[10px] font-bold text-white shadow-md whitespace-nowrap z-10">
+                                {bar.value} deliveries
+                              </div>
+                              <div className="w-full rounded-t-lg bg-gradient-to-t from-indigo-600 to-indigo-400 transition-all duration-200 group-hover:brightness-110" style={{ height: `${height}%` }} />
                               <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
                             </div>
                           );
@@ -2430,8 +2444,11 @@ export default function App() {
                         {reportChartData.weekly.map((bar) => {
                           const height = Math.max(8, (bar.value / (bar.maxValue || 1)) * 100);
                           return (
-                            <div key={`${bar.label}-${bar.value}`} className="flex-1 flex flex-col items-center justify-end gap-2 h-full">
-                              <div className="w-full rounded-t-lg bg-gradient-to-t from-emerald-600 to-emerald-400" style={{ height: `${height}%` }} />
+                            <div key={`${bar.label}-${bar.value}`} className="group relative flex-1 flex flex-col items-center justify-end gap-2 h-full">
+                              <div className="absolute -top-9 left-1/2 -translate-x-1/2 hidden group-hover:flex items-center justify-center rounded-full bg-slate-900 px-2 py-1 text-[10px] font-bold text-white shadow-md whitespace-nowrap z-10">
+                                {bar.value} deliveries
+                              </div>
+                              <div className="w-full rounded-t-lg bg-gradient-to-t from-emerald-600 to-emerald-400 transition-all duration-200 group-hover:brightness-110" style={{ height: `${height}%` }} />
                               <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
                             </div>
                           );
@@ -2445,8 +2462,11 @@ export default function App() {
                         {reportChartData.monthly.map((bar) => {
                           const height = Math.max(8, (bar.value / (bar.maxValue || 1)) * 100);
                           return (
-                            <div key={bar.label} className="flex-1 flex flex-col items-center justify-end gap-2 h-full">
-                              <div className="w-full rounded-t-lg bg-gradient-to-t from-amber-500 to-amber-300" style={{ height: `${height}%` }} />
+                            <div key={bar.label} className="group relative flex-1 flex flex-col items-center justify-end gap-2 h-full">
+                              <div className="absolute -top-9 left-1/2 -translate-x-1/2 hidden group-hover:flex items-center justify-center rounded-full bg-slate-900 px-2 py-1 text-[10px] font-bold text-white shadow-md whitespace-nowrap z-10">
+                                {bar.value} deliveries
+                              </div>
+                              <div className="w-full rounded-t-lg bg-gradient-to-t from-amber-500 to-amber-300 transition-all duration-200 group-hover:brightness-110" style={{ height: `${height}%` }} />
                               <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
                             </div>
                           );
