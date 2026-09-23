@@ -17,6 +17,13 @@ import {
 
 const router = Router();
 
+const parseDateBoundary = (value: unknown, endOfDay = false): number | null => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const suffix = endOfDay ? 'T23:59:59.999Z' : 'T00:00:00.000Z';
+  const timestamp = Date.parse(`${value}${suffix}`);
+  return Number.isNaN(timestamp) ? null : timestamp;
+};
+
 /**
  * @route GET /api/orders
  * @desc Get all orders with optional filtering by status, paymentType, and date range
@@ -48,7 +55,6 @@ router.get('/', authenticateToken, async (req: Request, res: Response) => {
     if (startDate || endDate) {
       const start = startDate ? new Date(startDate as string).getTime() : 0;
       const end = endDate ? new Date(`${endDate}T23:59:59.999`).getTime() : Infinity;
-
       orders = orders.filter((order) => {
         const orderTime = new Date(order.createdAt).getTime();
         return orderTime >= start && orderTime <= end;
@@ -298,7 +304,6 @@ router.get('/export/daily', authenticateToken, async (req: Request, res: Respons
     if (startDate || endDate) {
       const start = startDate ? new Date(startDate as string).getTime() : 0;
       const end = endDate ? new Date(`${endDate}T23:59:59.999`).getTime() : Infinity;
-
       orders = orders.filter((order) => {
         const orderTime = new Date(order.createdAt).getTime();
         return orderTime >= start && orderTime <= end;
@@ -341,10 +346,30 @@ router.get('/export/account/:customerId', authenticateToken, async (req: Request
       return;
     }
 
-    const orders = await Order.find({ customer: customer._id });
+    const { startDate, endDate } = req.query;
+    const allOrders = await Order.find();
+    const customerId = String(customer._id);
+    let orders = allOrders.filter((order) => {
+      const orderCustomerId = typeof order.customer === 'object' && order.customer !== null ? String(order.customer._id || '') : String(order.customer || '');
+      return orderCustomerId === customerId;
+    });
+
+    if (startDate || endDate) {
+      const start = startDate ? parseDateBoundary(startDate) : 0;
+      const end = endDate ? parseDateBoundary(endDate, true) : Infinity;
+
+      if (start === null || end === null || (startDate && endDate && start > end)) {
+        res.status(400).json({ error: 'Invalid statement date range.' });
+        return;
+      }
+
+      orders = orders.filter((order) => {
+        const orderTime = new Date(order.createdAt).getTime();
+        return Number.isFinite(orderTime) && orderTime >= start && orderTime <= end;
+      });
+    }
+
     const populated = await Order.populate(orders, ['driver']);
-    
-    // Sort by date descending (newest first)
     populated.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     const buffer = generateAccountStatementExcel(customer, populated);
