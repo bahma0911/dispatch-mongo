@@ -77,7 +77,7 @@ export default function App() {
   const [authLoading, setAuthLoading] = useState(false);
 
   // Active Tab/Navigation
-  const [activeTab, setActiveTab] = useState<'orders' | 'dispatch' | 'customers' | 'drivers' | 'sms' | 'admin'>('orders');
+  const [activeTab, setActiveTab] = useState<'orders' | 'dispatch' | 'customers' | 'drivers' | 'report' | 'sms' | 'admin'>('orders');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Application Data States
@@ -98,6 +98,8 @@ export default function App() {
   // Search states for account holder lists
   const [accountHolderSearch, setAccountHolderSearch] = useState<string>('');
   const [dispatchAccountHolderSearch, setDispatchAccountHolderSearch] = useState<string>('');
+  const [accountStatementStartDate, setAccountStatementStartDate] = useState<string>('');
+  const [accountStatementEndDate, setAccountStatementEndDate] = useState<string>('');
 
   // Form States - Create Customer
   const [newCustName, setNewCustName] = useState('');
@@ -812,9 +814,19 @@ export default function App() {
     }
   };
 
-  const downloadAccountStatementExcel = async (customerId: string, name: string) => {
+  const downloadAccountStatementExcel = async (customerId: string, name: string, startDateOverride?: string, endDateOverride?: string) => {
     try {
-      const res = await fetch(`/api/orders/export/account/${customerId}`, { headers: getAuthHeaders() });
+      const params = new URLSearchParams();
+      const selectedStart = startDateOverride ?? accountStatementStartDate;
+      const selectedEnd = endDateOverride ?? accountStatementEndDate;
+      if (selectedStart) params.set('startDate', selectedStart);
+      if (selectedEnd) params.set('endDate', selectedEnd);
+
+      const url = params.size > 0
+        ? `/api/orders/export/account/${customerId}?${params.toString()}`
+        : `/api/orders/export/account/${customerId}`;
+
+      const res = await fetch(url, { headers: getAuthHeaders() });
       if (!res.ok) {
         throw new Error('Could not download statement');
       }
@@ -824,7 +836,8 @@ export default function App() {
       const a = document.createElement('a');
       a.href = fileUrl;
       const safeName = name.replace(/[^a-zA-Z0-9]/g, '_');
-      a.download = `Account_Statement_${safeName}.xlsx`;
+      const rangeSuffix = selectedStart || selectedEnd ? `_${selectedStart || 'from'}_${selectedEnd || 'to'}` : '';
+      a.download = `Account_Statement_${safeName}${rangeSuffix}.xlsx`;
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -876,6 +889,87 @@ export default function App() {
     })
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
 
+  const walkInCustomerSuggestions = (() => {
+    const seen = new Map<string, { id: string; name: string; phone: string; address: string }>();
+
+    for (const order of orders) {
+      const customer = typeof order.customer === 'object' && order.customer !== null ? order.customer as any : null;
+      if (!customer || !customer.name || !customer.phone) continue;
+
+      const isWalkIn = customer.type === 'NORMAL' || String(customer._id || '').startsWith('walkin-');
+      if (!isWalkIn) continue;
+
+      const key = `${customer.name.toLowerCase()}-${customer.phone}`;
+      if (!seen.has(key)) {
+        seen.set(key, {
+          id: key,
+          name: customer.name,
+          phone: customer.phone,
+          address: customer.address || ''
+        });
+      }
+    }
+
+    return Array.from(seen.values()).filter((customer) => {
+      if (!walkInName.trim()) return true;
+      return `${customer.name} ${customer.phone}`.toLowerCase().includes(walkInName.trim().toLowerCase());
+    });
+  })();
+
+  const reportChartData = (() => {
+    const deliveredOrders = orders.filter((order) => order.orderStatus === 'DELIVERED');
+    const today = new Date();
+
+    const buildDaily = () => {
+      const data: { label: string; value: number }[] = [];
+      for (let i = 6; i >= 0; i -= 1) {
+        const date = new Date(today);
+        date.setDate(today.getDate() - i);
+        const key = date.toISOString().slice(0, 10);
+        const value = deliveredOrders.filter((order) => new Date(order.createdAt).toISOString().slice(0, 10) === key).length;
+        data.push({ label: date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), value });
+      }
+      return data;
+    };
+
+    const buildWeekly = () => {
+      const data: { label: string; value: number }[] = [];
+      for (let i = 7; i >= 0; i -= 1) {
+        const end = new Date(today);
+        end.setDate(today.getDate() - (i * 7));
+        const start = new Date(end);
+        start.setDate(end.getDate() - 6);
+        const value = deliveredOrders.filter((order) => {
+          const orderDate = new Date(order.createdAt);
+          return orderDate >= start && orderDate <= end;
+        }).length;
+        data.push({ label: `${start.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`, value });
+      }
+      return data;
+    };
+
+    const buildMonthly = () => {
+      const data: { label: string; value: number }[] = [];
+      for (let i = 5; i >= 0; i -= 1) {
+        const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+        const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+        const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+        const value = deliveredOrders.filter((order) => {
+          const orderDate = new Date(order.createdAt);
+          return orderDate >= monthStart && orderDate <= monthEnd;
+        }).length;
+        data.push({ label: date.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }), value });
+      }
+      return data;
+    };
+
+    return {
+      daily: buildDaily(),
+      weekly: buildWeekly(),
+      monthly: buildMonthly()
+    };
+  })();
+
   // Order Filters application
   const handleApplyDateFilter = () => {
     if (startDate && endDate && startDate > endDate) {
@@ -885,6 +979,14 @@ export default function App() {
 
     setAppliedStartDate(startDate);
     setAppliedEndDate(endDate);
+  };
+
+  const handleApplyStatementDateFilter = () => {
+    if (accountStatementStartDate && accountStatementEndDate && accountStatementStartDate > accountStatementEndDate) {
+      showToast('Statement start date cannot be after end date.', 'error');
+      return;
+    }
+    showToast('Account statement date filter applied.', 'success');
   };
 
   const filteredOrders = orders.filter((order) => {
@@ -1226,6 +1328,19 @@ export default function App() {
               >
                 <Truck className="h-4.5 w-4.5 flex-shrink-0" />
                 {!isSidebarCollapsed && <span>Drivers Fleet</span>}
+              </button>
+
+              <button
+                onClick={() => setActiveTab('report')}
+                title={isSidebarCollapsed ? "Delivery Report" : undefined}
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center py-3' : 'gap-3 px-3 py-2.5'} rounded-lg font-medium text-xs transition-colors ${
+                  activeTab === 'report'
+                    ? 'bg-indigo-50 text-indigo-700 font-semibold'
+                    : 'text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <Activity className="h-4.5 w-4.5 flex-shrink-0" />
+                {!isSidebarCollapsed && <span>Delivery Report</span>}
               </button>
 
               <button
@@ -1643,14 +1758,37 @@ export default function App() {
                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
                               Walk-In Name
                             </label>
-                            <input
-                              type="text"
-                              required={customerMode === 'WALKIN'}
-                              value={walkInName}
-                              onChange={(e) => setWalkInName(e.target.value)}
-                              className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium placeholder-slate-400"
-                              placeholder="e.g. John Walkin"
-                            />
+                            <div className="relative">
+                              <input
+                                type="text"
+                                required={customerMode === 'WALKIN'}
+                                value={walkInName}
+                                onChange={(e) => setWalkInName(e.target.value)}
+                                className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all font-medium placeholder-slate-400"
+                                placeholder="e.g. John Walkin"
+                              />
+                              {walkInName.trim() && walkInCustomerSuggestions.length > 0 && (
+                                <div className="absolute z-20 mt-2 w-full rounded-lg border border-slate-200 bg-white shadow-lg max-h-44 overflow-auto">
+                                  {walkInCustomerSuggestions.slice(0, 6).map((customer) => (
+                                    <button
+                                      key={customer.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setWalkInName(customer.name);
+                                        setWalkInPhone(customer.phone);
+                                      }}
+                                      className="w-full flex items-center justify-between gap-3 px-3 py-2 text-left hover:bg-slate-50 border-b border-slate-100 last:border-b-0"
+                                    >
+                                      <div>
+                                        <div className="text-sm font-semibold text-slate-800">{customer.name}</div>
+                                        <div className="text-[10px] text-slate-500 font-medium">{customer.phone}</div>
+                                      </div>
+                                      <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600">Previous</span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
                           <div>
                             <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
@@ -1966,30 +2104,29 @@ export default function App() {
                 className="space-y-6"
               >
                 {/* Header card with create button */}
-                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                  <div>
-                    <h2 className="text-xl font-black text-slate-900"> Account Holders </h2>
-                    <p className="text-xs text-slate-400 font-medium mt-1">Manage delivery client directory and corporate accounts credit limits.</p>
+                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm flex flex-col gap-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div>
+                      <h2 className="text-xl font-black text-slate-900"> Account Holders </h2>
+                      <p className="text-xs text-slate-400 font-medium mt-1">Manage delivery client directory and corporate accounts credit limits.</p>
+                    </div>
+                    {currentUser?.username === 'admin' && (
+                      <button
+                        onClick={() => {
+                          setIsCreatingCustomer(true);
+                          showToast('Use register client form under dispatch tab.', 'info');
+                          setActiveTab('dispatch');
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-semibold hover:bg-slate-50 transition-colors shadow-sm self-start"
+                      >
+                        <UserPlus className="h-4 w-4 text-indigo-600" />
+                        <span>Add New Customer</span>
+                      </button>
+                    )}
                   </div>
-                  {currentUser?.username === 'admin' && (
-                    <button
-                      onClick={() => {
-                        setIsCreatingCustomer(true);
-                        showToast('Use register client form under dispatch tab.', 'info');
-                        setActiveTab('dispatch');
-                      }}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 border border-slate-200 text-slate-600 rounded-lg text-xs font-semibold hover:bg-slate-50 transition-colors shadow-sm self-start"
-                    >
-                      <UserPlus className="h-4 w-4 text-indigo-600" />
-                      <span>Add New Customer</span>
-                    </button>
-                  )}
-                </div>
 
-                {/* Customer Table */}
-                <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-                  <div className="px-4 pt-4">
-                    <div className="relative max-w-md">
+                  <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-3 border-t border-slate-100 pt-4">
+                    <div className="relative max-w-md flex-1">
                       <Search className="h-4 w-4 text-slate-400 absolute left-3 top-2.5" />
                       <input
                         type="text"
@@ -1999,7 +2136,36 @@ export default function App() {
                         placeholder="Search account holder by name or phone"
                       />
                     </div>
+
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2">
+                      <label className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">Invoice range</label>
+                      <input
+                        type="date"
+                        value={accountStatementStartDate}
+                        onChange={(e) => setAccountStatementStartDate(e.target.value)}
+                        className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                      <span className="text-slate-400 text-xs">to</span>
+                      <input
+                        type="date"
+                        value={accountStatementEndDate}
+                        onChange={(e) => setAccountStatementEndDate(e.target.value)}
+                        className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyStatementDateFilter}
+                        className="inline-flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs transition-colors"
+                      >
+                        <Filter className="h-3.5 w-3.5" />
+                        Apply
+                      </button>
+                    </div>
                   </div>
+                </div>
+
+                {/* Customer Table */}
+                <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="min-w-full divide-y divide-slate-100 text-left text-sm">
                       <thead className="bg-slate-50 border-b border-slate-200">
@@ -2063,7 +2229,7 @@ export default function App() {
                                       </button>
                                     )}
                                     <button
-                                      onClick={() => downloadAccountStatementExcel(c._id, c.name)}
+                                      onClick={() => downloadAccountStatementExcel(c._id, c.name, accountStatementStartDate, accountStatementEndDate)}
                                       className="inline-flex items-center bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 font-bold px-3 py-1.5 rounded-lg text-xs transition"
                                     >
                                       <FileSpreadsheet className="h-3.5 w-3.5 mr-1 text-indigo-600" />
@@ -2203,6 +2369,66 @@ export default function App() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'report' && (
+              <motion.div
+                key="report"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -10 }}
+                className="space-y-6"
+              >
+                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm">
+                  <div className="flex items-center justify-between gap-4 mb-4">
+                    <div>
+                      <h2 className="text-xl font-black text-slate-900 flex items-center">
+                        <Activity className="h-5 w-5 mr-2 text-indigo-600" />
+                        Delivery Progress Report
+                      </h2>
+                      <p className="text-xs text-slate-400 font-medium mt-1">Daily, weekly, and monthly delivery trends</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-3">Daily Deliveries</div>
+                      <div className="flex h-40 items-end gap-2">
+                        {reportChartData.daily.map((bar) => (
+                          <div key={bar.label} className="flex-1 flex flex-col items-center justify-end gap-2">
+                            <div className="w-full rounded-t-lg bg-gradient-to-t from-indigo-600 to-indigo-400" style={{ height: `${Math.max(18, bar.value * 30)}px` }} />
+                            <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-3">Weekly Deliveries</div>
+                      <div className="flex h-40 items-end gap-2">
+                        {reportChartData.weekly.map((bar) => (
+                          <div key={`${bar.label}-${bar.value}`} className="flex-1 flex flex-col items-center justify-end gap-2">
+                            <div className="w-full rounded-t-lg bg-gradient-to-t from-emerald-600 to-emerald-400" style={{ height: `${Math.max(18, bar.value * 28)}px` }} />
+                            <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-3">Monthly Deliveries</div>
+                      <div className="flex h-40 items-end gap-2">
+                        {reportChartData.monthly.map((bar) => (
+                          <div key={bar.label} className="flex-1 flex flex-col items-center justify-end gap-2">
+                            <div className="w-full rounded-t-lg bg-gradient-to-t from-amber-500 to-amber-300" style={{ height: `${Math.max(18, bar.value * 32)}px` }} />
+                            <div className="text-[10px] text-slate-500 text-center">{bar.label}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </motion.div>
             )}
